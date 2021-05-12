@@ -16,6 +16,23 @@
   
   <title>Assinello</title>
 
+  <style>
+    .alerts-border {
+      border: 1px #ff0000 solid;
+    
+      animation: blink 1s;
+      animation-iteration-count: infinite;
+    }
+
+    @keyframes blink { 50% { border-color:#fff ; }  }
+    
+    .red {
+      color: #ff0000
+    }
+    
+  </style>
+  
+  
 
 </head>
 
@@ -24,31 +41,44 @@
 
   <div id="app">
     
-    <form v-on:submit.prevent="connect">
-      <input placeholder="username" v-model="mqtt.credentials.username">
-      <input placeholder="password" v-model="mqtt.credentials.password" type="password">
-      <input placeholder="playernumber" v-model="mqtt.credentials.playernumber">
-      <button>Connect</button>
-    </form>
+    <div v-show="!mqtt.connected" class="alerts-border">
     
-
-    <div v-show=game.haveball>
-      I have the ball!!!
-      
-      <br>
-      <form v-on:submit.prevent="throwball">
-
-        <select v-model="selectedplayer">
-          <option v-for="player in activePlayers" v-bind:value="player">
-          {{ player }}
-          </option>
-        </select>
-
-        <button>Throw</button>
+      <form v-on:submit.prevent="connect">
+        <input placeholder="username" v-model="mqtt.credentials.username">
+        <input placeholder="password" v-model="mqtt.credentials.password" type="password">
+        <input placeholder="playernumber" v-model="mqtt.credentials.playernumber">
+        <button>Connect</button>
       </form>
     </div>
+
+    <div v-bind:class="{ 'alerts-border': haveBall }">
+    
+      <div v-show="haveBall">
+        I have the ball!!!
+        
+        <br>
+        <form v-on:submit.prevent="throwball">
+
+          <select v-model="selectedplayer">
+            <option v-for="player in activePlayers" v-bind:value="player">
+            {{ player }}
+            </option>
+          </select>
+
+          <button>Throw</button>
+        </form>
+      </div>
     
     
+      <ul id="example-2">
+        <li v-for="(item, index) in game.players" v-bind:class="{ 'red': item.hasBall }">
+          {{ index }}
+        </li>
+      </ul>
+    
+    
+    
+    </div>
     
     
     
@@ -61,7 +91,8 @@
     var client;
     var mqtt_config = {
           url: "wss://nerdshop.uber.space:40801",
-          credentials: {}
+          credentials: {},
+          connected: false
     }
     
     var game = {
@@ -92,6 +123,8 @@
 
           client.on('connect', function () {
             console.log("Connected")
+            mqtt_config.connected=true
+
             client.publish("/players/" + mqtt_config.credentials.playernumber + "/alive", "true", {retain:true})
             
             
@@ -123,13 +156,27 @@
           let players=[]
           for (let key in this.game.players) {
             if (this.game.players.hasOwnProperty(key)) {
-              if (this.game.players[key]) {
-                players.push(key);
+            
+              if (this.game.players[key].hasOwnProperty("alive")) {
+                if (this.game.players[key]["alive"]) {
+                  players.push(key);
+                }
               }
             }
           }
           return players
+        },
+        haveBall: function () {
+          if (this.game.players.hasOwnProperty(mqtt_config.credentials.playernumber)) {
+            if (this.game.players[mqtt_config.credentials.playernumber].hasOwnProperty("hasBall")) {
+              if (this.game.players[mqtt_config.credentials.playernumber]["hasBall"]) {
+                return true;
+              }
+            }
+          }
+          return false
         }
+
       }
     })
     
@@ -139,22 +186,28 @@
     message_handling = function(topic, message) {
       // message is Buffer
       console.log(topic + ":" + message.toString())
-      if (topic== "/players/" + mqtt_config.credentials.playernumber + "/ball") {
+      if (result=topic.match(/^\/players\/(.*)\/ball$/)) {
+        if (!game.players.hasOwnProperty(result[1])) {
+          Vue.set(app.game.players, result[1], {});
+        }
+        
         if (message.toString() == "true") {
-          game.haveball=true;
+          Vue.set(app.game.players[result[1]], "hasBall", true);
         }
         else if (message.toString() == "false") {
-          game.haveball=false;
+          Vue.set(app.game.players[result[1]], "hasBall", false);
         }
       } else if (result=topic.match(/\/players\/(.*)\/alive/)) {
-        console.log(result)
+        if (!app.game.players.hasOwnProperty(result[1])) {
+          Vue.set(app.game.players, result[1], {});
+        }
+
         if (message.toString() == "true") {
-          Vue.set(app.game.players, result[1], true);
+          Vue.set(app.game.players[result[1]], "alive", true);
         }
         else if (message.toString() == "false") {
-          Vue.set(app.game.players, result[1], false);
+          Vue.set(app.game.players[result[1]], "alive", false);
         }
-        console.log(game.players)
       }  else if (topic=="/players/" + mqtt_config.credentials.playernumber + "/ball/drop") {
         console.log("Ball dropped")
         if (message.toString() == "true") {
